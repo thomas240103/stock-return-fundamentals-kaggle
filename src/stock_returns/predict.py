@@ -11,6 +11,7 @@ import pandas as pd
 
 from stock_returns.config import (
     DEFAULT_MAX_MISSING_FRACTION,
+    EXPECTED_TEST_ROWS,
     FINAL_PREDICTION_CLIP,
     ID_COL,
     PREFERRED_ENSEMBLE_MODELS,
@@ -32,13 +33,22 @@ from stock_returns.utils import ensure_dir
 from stock_returns.validation import get_time_split
 
 
-def validate_submission_frame(submission: pd.DataFrame, test_df: pd.DataFrame) -> None:
+def validate_submission_frame(
+    submission: pd.DataFrame,
+    test_df: pd.DataFrame,
+    expected_rows: int | None = None,
+) -> None:
     """Validate Kaggle submission shape and columns."""
     expected_columns = [ID_COL, TARGET_COL]
     if list(submission.columns) != expected_columns:
         raise ValueError(f"Submission columns must be exactly {expected_columns}.")
     if len(submission) != len(test_df):
         raise ValueError(f"Submission row count {len(submission)} does not match test row count {len(test_df)}.")
+    if expected_rows is not None and len(submission) != expected_rows:
+        raise ValueError(
+            f"Official submission must have exactly {expected_rows} rows; got {len(submission)}. "
+            "Use expected_rows=None only for local smoke tests."
+        )
     if submission[TARGET_COL].isna().any():
         raise ValueError("Submission contains NaN predictions.")
     if not submission[ID_COL].reset_index(drop=True).equals(test_df[ID_COL].reset_index(drop=True)):
@@ -153,6 +163,7 @@ def make_submission(
     model_output_path: str | Path | None = None,
     feature_set: str = "scores",
     max_missing_fraction: float = DEFAULT_MAX_MISSING_FRACTION,
+    expected_rows: int | None = EXPECTED_TEST_ROWS,
 ) -> pd.DataFrame:
     """Fit on train data and write a Kaggle submission CSV."""
     train_df = load_train(train_path)
@@ -167,7 +178,7 @@ def make_submission(
     prediction = predict_with_bundle(bundle, test_df)
 
     submission = pd.DataFrame({ID_COL: test_df[ID_COL].to_numpy(), TARGET_COL: prediction})
-    validate_submission_frame(submission, test_df)
+    validate_submission_frame(submission, test_df, expected_rows=expected_rows)
 
     target = Path(output_path)
     ensure_dir(target.parent)

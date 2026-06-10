@@ -21,6 +21,7 @@ The competition provides:
 - `train.csv`: 23,070 stock-quarter observations from 2019-2022, including `return_pct`.
 - `test.csv`: 8,520 observations from 2024, excluding `return_pct`.
 - `sample_submission.csv`: required submission format.
+- Features: 39 fundamental fields derived from SEC 10-K and 10-Q filings.
 - Target: `return_pct`, the 1-year percentage return.
 - Metric: RMSE on `return_pct`; lower is better.
 
@@ -171,6 +172,8 @@ This command tunes ensemble/shrinkage on the temporal split when possible, refit
 ```text
 outputs/submission.csv
 ```
+
+By default, `scripts/make_submission.py` validates that the output has exactly `8,520` rows, matching the official test set. Use `--expected-rows 0` only for local smoke tests with toy data.
 
 ## Repository Structure
 

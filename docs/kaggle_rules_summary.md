@@ -5,9 +5,13 @@ This is an operational summary for contributors. It is not legal advice and does
 ## Competition
 
 - Title: Predict 1-Year US Stock Returns from Fundamentals.
-- Sponsor / data source noted by Kaggle citation: Atlantis Data Solutions.
-- Prize: check the official Kaggle page for the current prize details.
-- Winner license: winning solutions may need to be released as open source according to the official competition requirements.
+- Sponsor: Atlantis Data Solutions.
+- Sponsor address listed in the rules: 1606 Headway Cir STE 9703, Austin, TX 78754, US.
+- Prize: $1000 total, first prize $1000.
+- Winner license: Open Source. Winning source code must use an OSI-approved license that does not limit commercial use.
+- Data source: features are derived from SEC filings, including 10-K and 10-Q filings.
+- Evaluation metric: RMSE on `return_pct`; lower is better.
+- Official submission format: `id,return_pct` with exactly 8,520 prediction rows for the official test set.
 
 ## Practical Constraints
 
@@ -19,6 +23,7 @@ This is an operational summary for contributors. It is not legal advice and does
 - Do not privately share competition code or data outside the team.
 - During the competition, public code sharing should happen through Kaggle forums or Kaggle notebooks if the official rules require that channel.
 - Winners may need to provide complete code, training code, inference code, environment details, and documentation.
+- Winner documentation may need to explain methodology, preprocessing, loss function, training details, hyperparameters, environment, and how to reproduce the winning submission.
 - Do not commit competition data to git.
 
 ## Repository Rule

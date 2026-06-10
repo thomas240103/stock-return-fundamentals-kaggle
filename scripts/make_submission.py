@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-output", default="outputs/models/full_train_bundle.joblib", help="Optional fitted model bundle output.")
     parser.add_argument("--feature-set", choices=["base", "ranks", "scores", "all"], default="scores")
     parser.add_argument("--max-missing-fraction", type=float, default=0.98, help="Drop feature columns above this train missing fraction.")
+    parser.add_argument("--expected-rows", type=int, default=8520, help="Expected official test row count. Use 0 to disable for smoke tests.")
     parser.add_argument("--no-optional-models", action="store_true", help="Disable optional LightGBM/XGBoost/CatBoost models.")
     return parser.parse_args()
 
@@ -32,6 +33,7 @@ def main() -> None:
         model_output_path=args.model_output,
         feature_set=args.feature_set,
         max_missing_fraction=args.max_missing_fraction,
+        expected_rows=args.expected_rows or None,
     )
     print(f"Saved {len(submission)} predictions to {args.output}")
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 TARGET_COL = "return_pct"
 ID_COL = "id"
 SECTOR_COL = "sector_code"
+EXPECTED_TEST_ROWS = 8520
+COMPETITION_FEATURE_COUNT = 39
 RANDOM_STATE = 42
 EPSILON = 1e-9
 
