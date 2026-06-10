@@ -185,6 +185,8 @@ python scripts/catboost_benchmark.py --train data/raw/train.csv --test data/raw/
 
 This is a validation-safe benchmark inspired by simple public leaderboard-style notebooks. It uses compact financial interaction features, train-fitted sector-relative features, median imputation, conservative CatBoost regularization, target clipping comparisons, and optional final shrink/clip diagnostics.
 
+By default, the generated submission uses the best local 2022 validation variant observed in this repository: `--submission-target clip_1_99 --submission-transform clip_100`.
+
 It writes:
 
 ```text

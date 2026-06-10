@@ -33,6 +33,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--l2-leaf-reg", type=float, default=10.0)
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--make-submission", action="store_true", help="Refit on all train rows and write submission.csv.")
+    parser.add_argument(
+        "--submission-target",
+        choices=["raw", "clip_1_99", "clip_5_95"],
+        default="clip_1_99",
+        help="Target preprocessing used when refitting on all train rows for submission.",
+    )
+    parser.add_argument(
+        "--submission-transform",
+        choices=["raw", "shrink_0p8", "clip_100", "shrink_0p8_clip_100", "mean_shrink_0p8_clip_100"],
+        default="clip_100",
+        help="Final prediction transform for submission. Defaults to the best 2022 validation transform.",
+    )
     return parser.parse_args()
 
 
@@ -135,6 +147,21 @@ def evaluate_prediction(y_true: np.ndarray, pred: np.ndarray, train_mean: float)
         "pred_min": float(np.min(pred)),
         "pred_max": float(np.max(pred)),
     }
+
+
+def transform_submission_prediction(pred: np.ndarray, train_mean: float, transform: str) -> np.ndarray:
+    values = np.asarray(pred, dtype=float)
+    if transform == "raw":
+        return values
+    if transform == "shrink_0p8":
+        return values * 0.8
+    if transform == "clip_100":
+        return np.clip(values, -100.0, 100.0)
+    if transform == "shrink_0p8_clip_100":
+        return np.clip(values * 0.8, -100.0, 100.0)
+    if transform == "mean_shrink_0p8_clip_100":
+        return np.clip(float(train_mean) + 0.8 * (values - float(train_mean)), -100.0, 100.0)
+    raise ValueError(f"Unknown submission transform: {transform}")
 
 
 def feature_columns(df: pd.DataFrame) -> list[str]:
@@ -248,11 +275,11 @@ def make_submission(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: P
     X_train = imputer.fit_transform(train_features[features].astype("float32").to_numpy())
     X_test = imputer.transform(test_features[features].astype("float32").to_numpy())
     y_train = pd.to_numeric(train_features[TARGET_COL], errors="coerce").to_numpy(dtype=float)
-    y_train_clipped, _ = target_variant(y_train, "clip_5_95")
+    y_train_model, _ = target_variant(y_train, args.submission_target)
 
-    model = fit_catboost(X_train, y_train_clipped, None, None, args)
+    model = fit_catboost(X_train, y_train_model, None, None, args)
     pred = np.asarray(model.predict(X_test), dtype=float)
-    pred = np.clip(pred * 0.8, -100.0, 100.0)
+    pred = transform_submission_prediction(pred, train_mean=float(np.mean(y_train)), transform=args.submission_transform)
     submission = pd.DataFrame({ID_COL: test_df[ID_COL].to_numpy(), TARGET_COL: pred})
     output_path = output_dir / "submission_catboost_benchmark.csv"
     submission.to_csv(output_path, index=False)
