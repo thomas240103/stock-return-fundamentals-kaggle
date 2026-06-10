@@ -141,6 +141,25 @@ The ablation compares:
 
 Results are saved to `outputs/ablation_results.csv` with validation RMSE and improvement versus the previous stage.
 
+## Data Inspection / EDA
+
+```bash
+python scripts/eda_report.py --train data/raw/train.csv --test data/raw/test.csv --output-dir outputs/eda
+```
+
+This creates CSV summaries and PNG plots:
+
+- dataset overview;
+- missingness by column;
+- numeric feature summary;
+- target distribution and target by year;
+- sector target summary;
+- top numeric correlations with `return_pct`;
+- train-test feature shift diagnostics;
+- scatter plots for the strongest target-correlated features.
+
+The Kaggle notebook also includes an optional EDA cell that runs this script and displays the main tables/plots inline.
+
 ## Generate Submission
 
 ```bash
