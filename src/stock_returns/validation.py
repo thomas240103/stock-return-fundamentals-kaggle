@@ -30,3 +30,19 @@ def rmse(y_true: np.ndarray | pd.Series, y_pred: np.ndarray | pd.Series) -> floa
     if true.shape[0] != pred.shape[0]:
         raise ValueError(f"Shape mismatch: y_true has {true.shape[0]} rows, y_pred has {pred.shape[0]} rows.")
     return float(np.sqrt(np.mean((true - pred) ** 2)))
+
+
+def percent_improvement(reference_score: float, candidate_score: float) -> float:
+    """Return percentage improvement for a lower-is-better score."""
+    if not np.isfinite(reference_score) or reference_score <= 0:
+        return float("nan")
+    return float((reference_score - candidate_score) / reference_score * 100.0)
+
+
+def rmse_as_target_std_pct(y_true: np.ndarray | pd.Series, score: float) -> float:
+    """Return RMSE as a percentage of the validation target standard deviation."""
+    target = np.asarray(y_true, dtype=float)
+    target_std = float(np.nanstd(target))
+    if not np.isfinite(target_std) or target_std <= 0:
+        return float("nan")
+    return float(score / target_std * 100.0)

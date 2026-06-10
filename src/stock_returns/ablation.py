@@ -20,7 +20,7 @@ from stock_returns.features import make_feature_frame, select_columns_by_missing
 from stock_returns.models import build_models, clip_target
 from stock_returns.train import fit_named_models, predict_named_models
 from stock_returns.utils import ensure_dir
-from stock_returns.validation import get_time_split, rmse
+from stock_returns.validation import get_time_split, percent_improvement, rmse, rmse_as_target_std_pct
 
 
 ABLATION_STAGES = [
@@ -149,6 +149,8 @@ def run_ablation(
 ) -> pd.DataFrame:
     """Run feature-block ablation and save validation RMSE results."""
     train_df = load_train(train_path)
+    _, validation_mask = get_time_split(train_df)
+    y_validation_real = pd.to_numeric(train_df.loc[validation_mask, TARGET_COL], errors="coerce").to_numpy(dtype=float)
     rows: list[dict[str, Any]] = []
 
     for stage in ABLATION_STAGES:
@@ -187,6 +189,17 @@ def run_ablation(
 
     results = pd.DataFrame(rows)
     results["improvement_vs_previous"] = results["validation_rmse"].shift(1) - results["validation_rmse"]
+    results["improvement_vs_previous_pct"] = [
+        percent_improvement(reference, candidate) if pd.notna(reference) else np.nan
+        for reference, candidate in zip(results["validation_rmse"].shift(1), results["validation_rmse"])
+    ]
+    baseline_rmse = float(results["validation_rmse"].iloc[0])
+    results["improvement_vs_base_pct"] = results["validation_rmse"].map(
+        lambda value: percent_improvement(baseline_rmse, float(value))
+    )
+    results["rmse_as_validation_target_std_pct"] = results["validation_rmse"].map(
+        lambda value: rmse_as_target_std_pct(y_validation_real, float(value))
+    )
     results["improved_vs_previous"] = results["improvement_vs_previous"] > 0
 
     output = Path(output_path)

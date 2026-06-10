@@ -4,7 +4,7 @@ import pandas as pd
 
 import pytest
 
-from stock_returns.validation import get_time_split, rmse
+from stock_returns.validation import get_time_split, percent_improvement, rmse, rmse_as_target_std_pct
 
 
 def test_time_split_uses_2019_2021_train_and_2022_validation() -> None:
@@ -17,3 +17,12 @@ def test_time_split_uses_2019_2021_train_and_2022_validation() -> None:
 
 def test_rmse() -> None:
     assert rmse([1, 2, 3], [1, 2, 5]) == pytest.approx((4 / 3) ** 0.5)
+
+
+def test_percent_improvement_lower_is_better() -> None:
+    assert percent_improvement(100.0, 90.0) == pytest.approx(10.0)
+    assert percent_improvement(100.0, 110.0) == pytest.approx(-10.0)
+
+
+def test_rmse_as_target_std_pct() -> None:
+    assert rmse_as_target_std_pct([0.0, 2.0], 1.0) == pytest.approx(100.0)

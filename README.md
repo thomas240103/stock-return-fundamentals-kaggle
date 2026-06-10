@@ -121,6 +121,9 @@ This command:
 - fits baselines and models on clipped training targets;
 - drops feature columns whose train-split missing fraction is above `--max-missing-fraction` (default `0.98`);
 - evaluates RMSE on the real, unclipped 2022 target;
+- reports percent-style diagnostics:
+  - `improvement_vs_global_mean_pct`: positive is better than the global mean baseline;
+  - `rmse_as_validation_target_std_pct`: RMSE as a percentage of the 2022 target standard deviation;
 - saves validation predictions, metrics, and model artifacts in `outputs/`.
 
 ## Feature Ablation

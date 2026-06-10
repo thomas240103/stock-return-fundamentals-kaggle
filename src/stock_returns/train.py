@@ -21,7 +21,7 @@ from stock_returns.ensemble import (
 from stock_returns.features import make_feature_frame, select_columns_by_missingness
 from stock_returns.models import build_models, clip_target
 from stock_returns.utils import ensure_dir, save_json, utc_timestamp
-from stock_returns.validation import get_time_split, rmse
+from stock_returns.validation import get_time_split, percent_improvement, rmse, rmse_as_target_std_pct
 
 
 def fit_named_models(
@@ -89,13 +89,30 @@ def train_validation_pipeline(
         "feature_set": feature_set,
         "max_missing_fraction": max_missing_fraction,
         "dropped_missing_columns": dropped_missing_columns,
+        "validation_target": {
+            "mean_pct_points": float(np.nanmean(y_validation_real)),
+            "std_pct_points": float(np.nanstd(y_validation_real)),
+            "median_pct_points": float(np.nanmedian(y_validation_real)),
+        },
         "target_clip": target_clip,
         "models": {},
     }
-    for name, pred in validation_predictions.items():
-        score = rmse(y_validation_real, pred)
-        metrics["models"][name] = {"validation_rmse": score}
-        print(f"{name}: validation RMSE = {score:.6f}")
+    model_scores = {name: rmse(y_validation_real, pred) for name, pred in validation_predictions.items()}
+    reference_rmse = model_scores.get("global_mean", next(iter(model_scores.values())))
+    for name, score in model_scores.items():
+        improvement_pct = percent_improvement(reference_rmse, score)
+        target_std_pct = rmse_as_target_std_pct(y_validation_real, score)
+        metrics["models"][name] = {
+            "validation_rmse": score,
+            "validation_rmse_pct_points": score,
+            "improvement_vs_global_mean_pct": improvement_pct,
+            "rmse_as_validation_target_std_pct": target_std_pct,
+        }
+        print(
+            f"{name}: RMSE = {score:.6f} pct-pts | "
+            f"vs global_mean = {improvement_pct:+.2f}% | "
+            f"RMSE/target_std = {target_std_pct:.2f}%"
+        )
 
     ensemble_candidates = _core_ensemble_predictions(validation_predictions)
     tuned_weights, tuned_rmse = search_ensemble_weights(ensemble_candidates, y_validation_real)
@@ -104,6 +121,8 @@ def train_validation_pipeline(
     ensemble_raw_rmse = rmse(y_validation_real, ensemble_raw)
     alpha, shrunk_rmse = tune_shrinkage(y_validation_real, ensemble_raw, train_mean=train_mean)
     ensemble_shrunk = apply_shrinkage(ensemble_raw, train_mean=train_mean, alpha=alpha)
+    raw_improvement_pct = percent_improvement(reference_rmse, ensemble_raw_rmse)
+    shrunk_improvement_pct = percent_improvement(reference_rmse, shrunk_rmse)
 
     metrics["ensemble"] = {
         "tuned_weights": tuned_weights,
@@ -111,12 +130,19 @@ def train_validation_pipeline(
         "selected_weights": weights,
         "selected_weights_source": "validation_search",
         "raw_rmse": ensemble_raw_rmse,
+        "raw_improvement_vs_global_mean_pct": raw_improvement_pct,
         "shrinkage_alpha": alpha,
         "shrunk_rmse": shrunk_rmse,
+        "shrunk_rmse_pct_points": shrunk_rmse,
+        "shrunk_improvement_vs_global_mean_pct": shrunk_improvement_pct,
+        "shrunk_rmse_as_validation_target_std_pct": rmse_as_target_std_pct(y_validation_real, shrunk_rmse),
         "train_mean": train_mean,
     }
-    print(f"ensemble raw: validation RMSE = {ensemble_raw_rmse:.6f}")
-    print(f"ensemble shrunk: validation RMSE = {shrunk_rmse:.6f} (alpha={alpha:.2f})")
+    print(f"ensemble raw: RMSE = {ensemble_raw_rmse:.6f} pct-pts | vs global_mean = {raw_improvement_pct:+.2f}%")
+    print(
+        f"ensemble shrunk: RMSE = {shrunk_rmse:.6f} pct-pts | "
+        f"vs global_mean = {shrunk_improvement_pct:+.2f}% | alpha={alpha:.2f}"
+    )
 
     validation_output = pd.DataFrame(
         {
