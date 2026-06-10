@@ -119,6 +119,7 @@ This command:
 - creates features;
 - uses `start_year < 2022` for training and `start_year == 2022` for validation;
 - fits baselines and models on clipped training targets;
+- drops feature columns whose train-split missing fraction is above `--max-missing-fraction` (default `0.98`);
 - evaluates RMSE on the real, unclipped 2022 target;
 - saves validation predictions, metrics, and model artifacts in `outputs/`.
 
@@ -242,6 +243,10 @@ RMSE is computed on the real validation target, not the clipped target.
 The notebook in `notebooks/01_eda.ipynb` is intentionally thin. It loads data, runs basic EDA, creates features, and can call the project pipeline. Keep reusable logic in `src/` and CLI scripts rather than notebook-only cells.
 
 If Kaggle raises `ModuleNotFoundError: No module named 'stock_returns'`, rerun the first notebook cell. That bootstrap cell adds the repository `src/` directory to `sys.path`; if Kaggle imported only the notebook file, it clones this GitHub repository into `/kaggle/working` first.
+
+The Kaggle notebook sets `USE_OPTIONAL_MODELS = False` by default for a cleaner, faster sklearn-only run. Change it to `True` only when you explicitly want to benchmark LightGBM, XGBoost, and CatBoost.
+
+It also sets `MAX_MISSING_FRACTION = 0.98`. Columns that are more missing than this in the training split are removed before fitting, and the dropped columns are saved in model metadata.
 
 ## Limitations
 

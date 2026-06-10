@@ -32,6 +32,7 @@
 - Add signed log transforms for skewed monetary columns.
 - Use target clipping during model fitting.
 - Run feature-block ablations on the 2022 validation split and save results to `outputs/ablation_results.csv`.
+- Drop feature columns above the configured train-split missingness threshold, default `0.98`, and save dropped columns in metadata.
 
 ## Phase 3: Ensemble and Shrinkage
 

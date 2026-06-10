@@ -9,7 +9,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from stock_returns.config import ID_COL, PREFERRED_ENSEMBLE_MODELS, RANDOM_STATE, TARGET_COL
+from stock_returns.config import DEFAULT_MAX_MISSING_FRACTION, ID_COL, PREFERRED_ENSEMBLE_MODELS, RANDOM_STATE, TARGET_COL
 from stock_returns.data import load_train
 from stock_returns.ensemble import (
     apply_shrinkage,
@@ -18,7 +18,7 @@ from stock_returns.ensemble import (
     tune_shrinkage,
     weighted_average,
 )
-from stock_returns.features import make_feature_frame
+from stock_returns.features import make_feature_frame, select_columns_by_missingness
 from stock_returns.models import build_models, clip_target
 from stock_returns.utils import ensure_dir, save_json, utc_timestamp
 from stock_returns.validation import get_time_split, rmse
@@ -53,6 +53,7 @@ def train_validation_pipeline(
     include_optional: bool = True,
     random_state: int = RANDOM_STATE,
     feature_set: str = "scores",
+    max_missing_fraction: float = DEFAULT_MAX_MISSING_FRACTION,
 ) -> dict[str, Any]:
     """Train models on 2019-2021 and validate on 2022."""
     output_path = ensure_dir(output_dir)
@@ -64,8 +65,13 @@ def train_validation_pipeline(
     train_part = train_df.loc[train_mask].copy()
     validation_part = train_df.loc[validation_mask].copy()
 
-    X_train = make_feature_frame(train_part, feature_set=feature_set)
-    X_validation = make_feature_frame(validation_part, fit_columns=list(X_train.columns), feature_set=feature_set)
+    X_train_full = make_feature_frame(train_part, feature_set=feature_set)
+    feature_columns, dropped_missing_columns = select_columns_by_missingness(
+        X_train_full,
+        max_missing_fraction=max_missing_fraction,
+    )
+    X_train = X_train_full[feature_columns]
+    X_validation = make_feature_frame(validation_part, fit_columns=feature_columns, feature_set=feature_set)
     y_train_real = pd.to_numeric(train_part[TARGET_COL], errors="coerce").to_numpy(dtype=float)
     y_validation_real = pd.to_numeric(validation_part[TARGET_COL], errors="coerce").to_numpy(dtype=float)
     y_train_clipped, target_clip = clip_target(y_train_real)
@@ -79,7 +85,10 @@ def train_validation_pipeline(
         "timestamp_utc": utc_timestamp(),
         "n_train": int(len(X_train)),
         "n_validation": int(len(X_validation)),
+        "n_features": int(len(feature_columns)),
         "feature_set": feature_set,
+        "max_missing_fraction": max_missing_fraction,
+        "dropped_missing_columns": dropped_missing_columns,
         "target_clip": target_clip,
         "models": {},
     }
@@ -124,6 +133,8 @@ def train_validation_pipeline(
     bundle = {
         "models": fitted,
         "feature_columns": list(X_train.columns),
+        "dropped_missing_columns": dropped_missing_columns,
+        "max_missing_fraction": max_missing_fraction,
         "target_clip": target_clip,
         "train_mean": train_mean,
         "ensemble_weights": weights,
@@ -138,6 +149,8 @@ def train_validation_pipeline(
         {
             "feature_columns": list(X_train.columns),
             "feature_set": feature_set,
+            "dropped_missing_columns": dropped_missing_columns,
+            "max_missing_fraction": max_missing_fraction,
             "ensemble_weights": weights,
             "shrinkage_alpha": alpha,
             "target_clip": target_clip,

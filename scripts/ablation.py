@@ -15,6 +15,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train", default="data/raw/train.csv", help="Path to Kaggle train.csv.")
     parser.add_argument("--output", default="outputs/ablation_results.csv", help="Output ablation CSV path.")
     parser.add_argument("--primary-model", default="gradient_boosting", help="Model used for feature-block comparisons.")
+    parser.add_argument("--max-missing-fraction", type=float, default=0.98, help="Drop feature columns above this train missing fraction.")
     parser.add_argument("--include-optional-models", action="store_true", help="Allow optional LightGBM/XGBoost/CatBoost models.")
     return parser.parse_args()
 
@@ -26,6 +27,7 @@ def main() -> None:
         output_path=args.output,
         primary_model=args.primary_model,
         include_optional=args.include_optional_models,
+        max_missing_fraction=args.max_missing_fraction,
     )
     print(results.to_string(index=False))
     print(f"Saved ablation results to {args.output}")

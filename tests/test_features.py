@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from stock_returns.features import COMPOSITE_SCORE_COLUMNS, make_feature_frame
+from stock_returns.features import COMPOSITE_SCORE_COLUMNS, make_feature_frame, select_columns_by_missingness
 
 
 def _sample_frame() -> pd.DataFrame:
@@ -85,3 +85,16 @@ def test_feature_sets_control_rank_and_score_blocks() -> None:
     assert "roe_rank_sector" in score_features.columns
     assert "value_score" in score_features.columns
     assert len(base_features) == len(rank_features) == len(score_features)
+
+
+def test_missingness_filter_drops_nearly_empty_columns() -> None:
+    X = pd.DataFrame(
+        {
+            "useful": [1.0, 2.0, np.nan, 4.0],
+            "too_empty": [np.nan, np.nan, np.nan, 1.0],
+            "all_empty": [np.nan, np.nan, np.nan, np.nan],
+        }
+    )
+    keep_columns, dropped = select_columns_by_missingness(X, max_missing_fraction=0.75)
+    assert keep_columns == ["useful", "too_empty"]
+    assert dropped == {"all_empty": 1.0}

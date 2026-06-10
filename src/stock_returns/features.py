@@ -26,6 +26,7 @@ import pandas as pd
 
 from stock_returns.config import (
     DATE_COLUMNS,
+    DEFAULT_MAX_MISSING_FRACTION,
     EPSILON,
     FORBIDDEN_FEATURE_COLUMNS,
     LOWER_IS_BETTER_COLUMNS,
@@ -45,6 +46,27 @@ COMPOSITE_SCORE_COLUMNS = [
     "piotroski_style_score",
     "quality_value_score",
 ]
+
+
+def select_columns_by_missingness(
+    X: pd.DataFrame,
+    max_missing_fraction: float = DEFAULT_MAX_MISSING_FRACTION,
+) -> tuple[list[str], dict[str, float]]:
+    """Select columns with acceptable missingness using training features only.
+
+    Columns above `max_missing_fraction` are excluded. This removes all-empty or
+    nearly empty columns that add warning noise and unstable imputations, while
+    keeping moderately sparse financial fields available to the model.
+    """
+    if not 0.0 <= max_missing_fraction <= 1.0:
+        raise ValueError("max_missing_fraction must be between 0.0 and 1.0.")
+
+    missing_fraction = X.isna().mean()
+    keep_columns = missing_fraction[missing_fraction <= max_missing_fraction].index.tolist()
+    dropped = missing_fraction[missing_fraction > max_missing_fraction].sort_values(ascending=False)
+    if not keep_columns:
+        raise ValueError("Missingness filter removed every feature column.")
+    return keep_columns, {col: float(value) for col, value in dropped.items()}
 
 
 def signed_log1p(values: pd.Series) -> pd.Series:

@@ -9,7 +9,14 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from stock_returns.config import FINAL_PREDICTION_CLIP, ID_COL, PREFERRED_ENSEMBLE_MODELS, RANDOM_STATE, TARGET_COL
+from stock_returns.config import (
+    DEFAULT_MAX_MISSING_FRACTION,
+    FINAL_PREDICTION_CLIP,
+    ID_COL,
+    PREFERRED_ENSEMBLE_MODELS,
+    RANDOM_STATE,
+    TARGET_COL,
+)
 from stock_returns.data import load_test, load_train
 from stock_returns.ensemble import (
     apply_shrinkage,
@@ -18,7 +25,7 @@ from stock_returns.ensemble import (
     tune_shrinkage,
     weighted_average,
 )
-from stock_returns.features import make_feature_frame
+from stock_returns.features import make_feature_frame, select_columns_by_missingness
 from stock_returns.models import build_models, clip_target
 from stock_returns.train import fit_named_models, predict_named_models
 from stock_returns.utils import ensure_dir
@@ -43,13 +50,19 @@ def _tune_on_temporal_split(
     include_optional: bool,
     random_state: int,
     feature_set: str,
+    max_missing_fraction: float,
 ) -> dict[str, Any]:
     train_mask, validation_mask = get_time_split(train_df)
     train_part = train_df.loc[train_mask].copy()
     validation_part = train_df.loc[validation_mask].copy()
 
-    X_train = make_feature_frame(train_part, feature_set=feature_set)
-    X_validation = make_feature_frame(validation_part, fit_columns=list(X_train.columns), feature_set=feature_set)
+    X_train_full = make_feature_frame(train_part, feature_set=feature_set)
+    feature_columns, dropped_missing_columns = select_columns_by_missingness(
+        X_train_full,
+        max_missing_fraction=max_missing_fraction,
+    )
+    X_train = X_train_full[feature_columns]
+    X_validation = make_feature_frame(validation_part, fit_columns=feature_columns, feature_set=feature_set)
     y_train_real = pd.to_numeric(train_part[TARGET_COL], errors="coerce").to_numpy(dtype=float)
     y_validation_real = pd.to_numeric(validation_part[TARGET_COL], errors="coerce").to_numpy(dtype=float)
     y_train_clipped, _ = clip_target(y_train_real)
@@ -64,7 +77,7 @@ def _tune_on_temporal_split(
     raw_prediction = weighted_average(ensemble_candidates, weights)
     train_mean = float(np.nanmean(y_train_real))
     alpha, _ = tune_shrinkage(y_validation_real, raw_prediction, train_mean=train_mean)
-    return {"weights": weights, "alpha": alpha}
+    return {"weights": weights, "alpha": alpha, "dropped_missing_columns": dropped_missing_columns}
 
 
 def fit_full_train_bundle(
@@ -72,6 +85,7 @@ def fit_full_train_bundle(
     include_optional: bool = True,
     random_state: int = RANDOM_STATE,
     feature_set: str = "scores",
+    max_missing_fraction: float = DEFAULT_MAX_MISSING_FRACTION,
 ) -> dict[str, Any]:
     """Tune on the temporal split, then refit models on all train rows."""
     try:
@@ -80,11 +94,17 @@ def fit_full_train_bundle(
             include_optional=include_optional,
             random_state=random_state,
             feature_set=feature_set,
+            max_missing_fraction=max_missing_fraction,
         )
     except ValueError:
         tuning = {"weights": None, "alpha": 1.0}
 
-    X_full = make_feature_frame(train_df, feature_set=feature_set)
+    X_full_raw = make_feature_frame(train_df, feature_set=feature_set)
+    feature_columns, dropped_missing_columns = select_columns_by_missingness(
+        X_full_raw,
+        max_missing_fraction=max_missing_fraction,
+    )
+    X_full = X_full_raw[feature_columns]
     y_full_real = pd.to_numeric(train_df[TARGET_COL], errors="coerce").to_numpy(dtype=float)
     y_full_clipped, target_clip = clip_target(y_full_real)
     train_mean = float(np.nanmean(y_full_real))
@@ -94,7 +114,9 @@ def fit_full_train_bundle(
 
     return {
         "models": fitted,
-        "feature_columns": list(X_full.columns),
+        "feature_columns": feature_columns,
+        "dropped_missing_columns": dropped_missing_columns,
+        "max_missing_fraction": max_missing_fraction,
         "target_clip": target_clip,
         "train_mean": train_mean,
         "ensemble_weights": tuning["weights"],
@@ -130,6 +152,7 @@ def make_submission(
     random_state: int = RANDOM_STATE,
     model_output_path: str | Path | None = None,
     feature_set: str = "scores",
+    max_missing_fraction: float = DEFAULT_MAX_MISSING_FRACTION,
 ) -> pd.DataFrame:
     """Fit on train data and write a Kaggle submission CSV."""
     train_df = load_train(train_path)
@@ -139,6 +162,7 @@ def make_submission(
         include_optional=include_optional,
         random_state=random_state,
         feature_set=feature_set,
+        max_missing_fraction=max_missing_fraction,
     )
     prediction = predict_with_bundle(bundle, test_df)
 

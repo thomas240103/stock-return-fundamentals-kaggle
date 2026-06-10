@@ -16,6 +16,11 @@ from sklearn.preprocessing import StandardScaler
 from stock_returns.config import RANDOM_STATE, SECTOR_COL
 
 
+def median_imputer() -> SimpleImputer:
+    """Median imputer that keeps all-empty columns stable across temporal splits."""
+    return SimpleImputer(strategy="median", keep_empty_features=True)
+
+
 def clip_target(
     y: pd.Series | np.ndarray,
     lower_q: float = 0.01,
@@ -102,7 +107,7 @@ class RankRidgeRegressor(BaseEstimator, RegressorMixin):
         self.columns_ = rank_like or list(X.columns)
         self.pipeline_ = Pipeline(
             steps=[
-                ("imputer", SimpleImputer(strategy="median")),
+                ("imputer", median_imputer()),
                 ("scaler", StandardScaler()),
                 ("ridge", Ridge(alpha=self.alpha)),
             ]
@@ -119,7 +124,7 @@ class RankRidgeRegressor(BaseEstimator, RegressorMixin):
 def _hist_gradient_boosting(random_state: int) -> Pipeline:
     return Pipeline(
         steps=[
-            ("imputer", SimpleImputer(strategy="median")),
+            ("imputer", median_imputer()),
             (
                 "model",
                 HistGradientBoostingRegressor(
@@ -137,7 +142,7 @@ def _hist_gradient_boosting(random_state: int) -> Pipeline:
 def _extra_trees(random_state: int) -> Pipeline:
     return Pipeline(
         steps=[
-            ("imputer", SimpleImputer(strategy="median")),
+            ("imputer", median_imputer()),
             (
                 "model",
                 ExtraTreesRegressor(
@@ -161,7 +166,7 @@ def _optional_models(random_state: int) -> dict[str, object]:
 
         models["lightgbm"] = Pipeline(
             steps=[
-                ("imputer", SimpleImputer(strategy="median")),
+                ("imputer", median_imputer()),
                 (
                     "model",
                     LGBMRegressor(
@@ -183,7 +188,7 @@ def _optional_models(random_state: int) -> dict[str, object]:
 
         models["xgboost"] = Pipeline(
             steps=[
-                ("imputer", SimpleImputer(strategy="median")),
+                ("imputer", median_imputer()),
                 (
                     "model",
                     XGBRegressor(
@@ -206,7 +211,7 @@ def _optional_models(random_state: int) -> dict[str, object]:
 
         models["catboost"] = Pipeline(
             steps=[
-                ("imputer", SimpleImputer(strategy="median")),
+                ("imputer", median_imputer()),
                 (
                     "model",
                     CatBoostRegressor(
