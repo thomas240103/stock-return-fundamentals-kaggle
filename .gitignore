@@ -13,6 +13,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .mypy_cache/
+catboost_info/
 build/
 dist/
 *.egg-info/

@@ -161,6 +161,37 @@ This creates CSV summaries and PNG plots:
 
 The Kaggle notebook also includes an optional EDA cell that runs this script and displays the main tables/plots inline.
 
+## Preprocessing Study
+
+```bash
+python scripts/preprocessing_study.py --train data/raw/train.csv --output-dir outputs/preprocessing_study
+```
+
+This script evaluates preprocessing choices on the 2022 temporal validation split:
+
+- raw versus clipped training targets;
+- standard scaling versus robust scaling;
+- feature winsorization before imputation/scaling;
+- base, rank, and composite-score feature sets.
+
+The study is diagnostic only. Use its results to decide whether a preprocessing change actually improves validation RMSE before promoting that change into the main submission pipeline.
+
+## CatBoost Benchmark
+
+```bash
+python -m pip install catboost
+python scripts/catboost_benchmark.py --train data/raw/train.csv --test data/raw/test.csv --output-dir outputs/catboost_benchmark --make-submission
+```
+
+This is a validation-safe benchmark inspired by simple public leaderboard-style notebooks. It uses compact financial interaction features, train-fitted sector-relative features, median imputation, conservative CatBoost regularization, target clipping comparisons, and optional final shrink/clip diagnostics.
+
+It writes:
+
+```text
+outputs/catboost_benchmark/catboost_benchmark_results.csv
+outputs/catboost_benchmark/submission_catboost_benchmark.csv
+```
+
 ## Generate Submission
 
 ```bash
