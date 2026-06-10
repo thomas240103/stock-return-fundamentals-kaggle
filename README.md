@@ -241,6 +241,8 @@ RMSE is computed on the real validation target, not the clipped target.
 
 The notebook in `notebooks/01_eda.ipynb` is intentionally thin. It loads data, runs basic EDA, creates features, and can call the project pipeline. Keep reusable logic in `src/` and CLI scripts rather than notebook-only cells.
 
+If Kaggle raises `ModuleNotFoundError: No module named 'stock_returns'`, rerun the first notebook cell. That bootstrap cell adds the repository `src/` directory to `sys.path`; if Kaggle imported only the notebook file, it clones this GitHub repository into `/kaggle/working` first.
+
 ## Limitations
 
 - Fundamentals alone may have weak predictive power for 1-year stock returns.
