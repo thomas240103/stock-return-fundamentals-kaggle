@@ -176,6 +176,22 @@ This script evaluates preprocessing choices on the 2022 temporal validation spli
 
 The study is diagnostic only. Use its results to decide whether a preprocessing change actually improves validation RMSE before promoting that change into the main submission pipeline.
 
+## Literature-Informed Feature Policy
+
+The repository treats accounting signals as model inputs, not as final hand-weighted predictions. The most defensible aggregates to test are:
+
+- cross-sectional ranks by sector and year for valuation, size, profitability, growth, leverage, and liquidity;
+- sector-relative medians/percentiles for ratios such as `pe_ttm`, `price_to_book`, `price_to_sales`, `roe`, `roa`, margins, revenue growth, and debt ratios;
+- ticker-level historical summaries fitted on past/training rows only: count, mean, median, standard deviation, last known value, current-versus-history ratios, and current-minus-last differences;
+- composite blocks such as value, quality, growth, balance sheet, liquidity, Piotroski-style, and quality-value scores, preferably built from percentile ranks instead of aggressive manual weights.
+
+References behind this policy:
+
+- Fama-French style portfolio construction repeatedly aggregates stocks by size, value, operating profitability, investment, earnings/price, cashflow/price, and dividend yield breakpoints. Relevant Kenneth French Data Library pages: [size and book-to-market](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/six_portfolios.html), [five factors](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/f-f_5_factors_2x3.html), [operating profitability portfolios](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/six_portfolios_me_op.html), and [investment portfolios](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/six_portfolios_me_inv.html).
+- Piotroski's F-score motivates historical accounting blocks for profitability, leverage/liquidity, and operating efficiency rather than a single raw ratio. Reference: [Piotroski (2000), Value Investing: The Use of Historical Financial Statement Information to Separate Winners from Losers](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=249455).
+- Modern ML asset-pricing work supports using many firm characteristics, sector/industry controls, and nonlinear models while validating out of sample. Reference: [Gu, Kelly, and Xiu (2020), Empirical Asset Pricing via Machine Learning](https://academic.oup.com/rfs/article/33/5/2223/5758276).
+- Time-based encodings such as `year_offset` are better viewed as general time-feature/trend engineering, not as a standard finance factor. They can help a model learn calendar drift, but they can also overfit regime changes. Reference examples: scikit-learn's [time-related feature engineering example](https://scikit-learn.org/stable/auto_examples/applications/plot_cyclical_feature_engineering.html) and the forecasting literature's use of explicit time/trend terms, e.g. [Hyndman and Athanasopoulos, Forecasting: Principles and Practice](https://otexts.com/fpp3/).
+
 ## CatBoost Benchmark
 
 ```bash
