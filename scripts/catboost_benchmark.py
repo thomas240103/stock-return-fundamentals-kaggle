@@ -20,6 +20,22 @@ from stock_returns.validation import get_time_split, percent_improvement
 
 
 EXCLUDE_COLUMNS = {ID_COL, "ticker", TARGET_COL, "period_start", "period_end", "start_year", SECTOR_COL}
+SUBMISSION_TRANSFORMS = [
+    "raw",
+    "shrink_0p8",
+    "clip_100",
+    "clip_200",
+    "clip_300",
+    "clip_500",
+    "shrink_0p8_clip_100",
+    "shrink_0p8_clip_200",
+    "shrink_0p8_clip_300",
+    "shrink_0p8_clip_500",
+    "mean_shrink_0p8_clip_100",
+    "mean_shrink_0p8_clip_200",
+    "mean_shrink_0p8_clip_300",
+    "mean_shrink_0p8_clip_500",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +48,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth", type=int, default=4)
     parser.add_argument("--l2-leaf-reg", type=float, default=10.0)
     parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument(
+        "--use-year-offset",
+        action="store_true",
+        help="Add relative year features where the earliest available start_year is encoded as 0.",
+    )
     parser.add_argument("--make-submission", action="store_true", help="Refit on all train rows and write submission.csv.")
     parser.add_argument(
         "--submission-target",
@@ -41,9 +62,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--submission-transform",
-        choices=["raw", "shrink_0p8", "clip_100", "shrink_0p8_clip_100", "mean_shrink_0p8_clip_100"],
+        choices=SUBMISSION_TRANSFORMS,
         default="clip_100",
         help="Final prediction transform for submission. Defaults to the best 2022 validation transform.",
+    )
+    parser.add_argument(
+        "--write-variant-submissions",
+        action="store_true",
+        help="Also write multiple transformed submission files from the same fitted test predictions.",
+    )
+    parser.add_argument(
+        "--variant-transforms",
+        default="clip_100,clip_200,clip_300,clip_500,raw,shrink_0p8_clip_100,shrink_0p8_clip_200,shrink_0p8_clip_300",
+        help="Comma-separated transforms to write when --write-variant-submissions is used.",
     )
     return parser.parse_args()
 
@@ -62,6 +93,33 @@ def load_frame(path: str | Path) -> pd.DataFrame:
     if "start_year" not in df.columns and "period_start" in df.columns:
         df["start_year"] = pd.to_datetime(df["period_start"], errors="coerce").dt.year
     return df
+
+
+def infer_year_zero(*frames: pd.DataFrame) -> float:
+    """Use the earliest available year as time zero across train/valid/test frames."""
+    years = []
+    for frame in frames:
+        if "start_year" in frame.columns:
+            values = pd.to_numeric(frame["start_year"], errors="coerce").dropna()
+            if not values.empty:
+                years.append(float(values.min()))
+    if not years:
+        return 0.0
+    return float(min(years))
+
+
+def add_year_offset_features(df: pd.DataFrame, year_zero: float, last_train_year: float | None = None) -> pd.DataFrame:
+    """Encode calendar time as offsets from the earliest year instead of raw years."""
+    out = df.copy()
+    if "start_year" not in out.columns:
+        return out
+    years = pd.to_numeric(out["start_year"], errors="coerce")
+    offset = years - float(year_zero)
+    out["year_offset"] = offset
+    out["year_offset_squared"] = offset**2
+    if last_train_year is not None:
+        out["year_offset_from_last_train_year"] = years - float(last_train_year)
+    return out
 
 
 def safe_divide(a: pd.Series, b: pd.Series) -> pd.Series:
@@ -155,13 +213,31 @@ def transform_submission_prediction(pred: np.ndarray, train_mean: float, transfo
         return values
     if transform == "shrink_0p8":
         return values * 0.8
-    if transform == "clip_100":
-        return np.clip(values, -100.0, 100.0)
-    if transform == "shrink_0p8_clip_100":
-        return np.clip(values * 0.8, -100.0, 100.0)
-    if transform == "mean_shrink_0p8_clip_100":
-        return np.clip(float(train_mean) + 0.8 * (values - float(train_mean)), -100.0, 100.0)
+    if transform.startswith("clip_"):
+        upper = float(transform.removeprefix("clip_"))
+        return np.clip(values, -100.0, upper)
+    if transform.startswith("shrink_0p8_clip_"):
+        upper = float(transform.removeprefix("shrink_0p8_clip_"))
+        return np.clip(values * 0.8, -100.0, upper)
+    if transform.startswith("mean_shrink_0p8_clip_"):
+        upper = float(transform.removeprefix("mean_shrink_0p8_clip_"))
+        return np.clip(float(train_mean) + 0.8 * (values - float(train_mean)), -100.0, upper)
     raise ValueError(f"Unknown submission transform: {transform}")
+
+
+def summarize_prediction(prediction: np.ndarray) -> dict[str, float]:
+    values = np.asarray(prediction, dtype=float)
+    return {
+        "mean": float(np.mean(values)),
+        "std": float(np.std(values)),
+        "min": float(np.min(values)),
+        "p01": float(np.quantile(values, 0.01)),
+        "p05": float(np.quantile(values, 0.05)),
+        "p50": float(np.quantile(values, 0.50)),
+        "p95": float(np.quantile(values, 0.95)),
+        "p99": float(np.quantile(values, 0.99)),
+        "max": float(np.max(values)),
+    }
 
 
 def feature_columns(df: pd.DataFrame) -> list[str]:
@@ -193,7 +269,11 @@ def fit_catboost(
 
 def run_validation(train_df: pd.DataFrame, output_dir: Path, args: argparse.Namespace) -> pd.DataFrame:
     train_mask, valid_mask = get_time_split(train_df)
+    year_zero = infer_year_zero(train_df)
+    last_train_year = float(pd.to_numeric(train_df.loc[train_mask, "start_year"], errors="coerce").max())
     base_train = add_basic_features(train_df)
+    if args.use_year_offset:
+        base_train = add_year_offset_features(base_train, year_zero=year_zero, last_train_year=last_train_year)
     ref_cols = [
         "pe_ttm",
         "price_to_book",
@@ -231,6 +311,9 @@ def run_validation(train_df: pd.DataFrame, output_dir: Path, args: argparse.Name
         row = {
             "target_preprocessing": target_name,
             "n_features": len(features),
+            "use_year_offset": args.use_year_offset,
+            "year_zero": year_zero,
+            "last_train_year": last_train_year,
             "target_lower": bounds["lower"],
             "target_upper": bounds["upper"],
         }
@@ -246,8 +329,13 @@ def run_validation(train_df: pd.DataFrame, output_dir: Path, args: argparse.Name
 
 
 def make_submission(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: Path, args: argparse.Namespace) -> Path:
+    year_zero = infer_year_zero(train_df, test_df)
+    last_train_year = float(pd.to_numeric(train_df["start_year"], errors="coerce").max())
     train_features = add_basic_features(train_df)
     test_features = add_basic_features(test_df)
+    if args.use_year_offset:
+        train_features = add_year_offset_features(train_features, year_zero=year_zero, last_train_year=last_train_year)
+        test_features = add_year_offset_features(test_features, year_zero=year_zero, last_train_year=last_train_year)
     ref_cols = [
         "pe_ttm",
         "price_to_book",
@@ -278,11 +366,46 @@ def make_submission(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: P
     y_train_model, _ = target_variant(y_train, args.submission_target)
 
     model = fit_catboost(X_train, y_train_model, None, None, args)
-    pred = np.asarray(model.predict(X_test), dtype=float)
-    pred = transform_submission_prediction(pred, train_mean=float(np.mean(y_train)), transform=args.submission_transform)
+    raw_pred = np.asarray(model.predict(X_test), dtype=float)
+    train_mean = float(np.mean(y_train))
+    pred = transform_submission_prediction(raw_pred, train_mean=train_mean, transform=args.submission_transform)
     submission = pd.DataFrame({ID_COL: test_df[ID_COL].to_numpy(), TARGET_COL: pred})
     output_path = output_dir / "submission_catboost_benchmark.csv"
     submission.to_csv(output_path, index=False)
+
+    summaries = [
+        {
+            "submission_file": output_path.name,
+            "target_preprocessing": args.submission_target,
+            "transform": args.submission_transform,
+            "use_year_offset": args.use_year_offset,
+            "year_zero": year_zero,
+            "last_train_year": last_train_year,
+            **summarize_prediction(pred),
+        }
+    ]
+    if args.write_variant_submissions:
+        requested = [item.strip() for item in args.variant_transforms.split(",") if item.strip()]
+        invalid = sorted(set(requested) - set(SUBMISSION_TRANSFORMS))
+        if invalid:
+            raise ValueError(f"Unknown variant transforms: {invalid}")
+        for transform in requested:
+            variant_pred = transform_submission_prediction(raw_pred, train_mean=train_mean, transform=transform)
+            variant_name = f"submission_{args.submission_target}_{transform}.csv"
+            variant_path = output_dir / variant_name
+            pd.DataFrame({ID_COL: test_df[ID_COL].to_numpy(), TARGET_COL: variant_pred}).to_csv(variant_path, index=False)
+            summaries.append(
+                {
+                    "submission_file": variant_name,
+                    "target_preprocessing": args.submission_target,
+                    "transform": transform,
+                    "use_year_offset": args.use_year_offset,
+                    "year_zero": year_zero,
+                    "last_train_year": last_train_year,
+                    **summarize_prediction(variant_pred),
+                }
+            )
+    pd.DataFrame(summaries).to_csv(output_dir / "submission_variant_summaries.csv", index=False)
     return output_path
 
 

@@ -187,12 +187,29 @@ This is a validation-safe benchmark inspired by simple public leaderboard-style 
 
 By default, the generated submission uses the best local 2022 validation variant observed in this repository: `--submission-target clip_1_99 --submission-transform clip_100`.
 
+Optional `--use-year-offset` encodes calendar year as a relative feature instead of a raw year: the smallest available `start_year` is treated as `year_offset = 0`, then later years become offsets such as `1`, `2`, `3`, and the 2024 test year becomes `5` when the train starts in 2019. This is kept optional because the single 2022 validation split worsened when the CatBoost submission benchmark used it directly.
+
 It writes:
 
 ```text
 outputs/catboost_benchmark/catboost_benchmark_results.csv
 outputs/catboost_benchmark/submission_catboost_benchmark.csv
 ```
+
+## Temporal Block Study
+
+```bash
+python scripts/temporal_block_study.py --train data/raw/train.csv --output-dir outputs/temporal_block_study
+```
+
+This checks whether a method is stable across different time setups:
+
+- one-year single-step splits such as `2019 -> 2020` and `2020 -> 2021`;
+- two-year jumps such as `2019 -> 2021`;
+- expanding windows such as `2019-2020 -> 2021`;
+- rolling recent windows such as `2020-2021 -> 2022`.
+
+The output helps separate a genuinely time-stable preprocessing/model choice from one that only looks good on the single `2019-2021 -> 2022` validation split.
 
 ## Generate Submission
 
