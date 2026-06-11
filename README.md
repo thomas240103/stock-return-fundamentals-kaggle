@@ -189,6 +189,8 @@ By default, the generated submission uses the best local 2022 validation variant
 
 Optional `--use-year-offset` encodes calendar year as a relative feature instead of a raw year: the smallest available `start_year` is treated as `year_offset = 0`, then later years become offsets such as `1`, `2`, `3`, and the 2024 test year becomes `5` when the train starts in 2019. This is kept optional because the single 2022 validation split worsened when the CatBoost submission benchmark used it directly.
 
+Optional `--use-aggregate-features` adds train-fitted ticker history features: historical count, mean, median, standard deviation, last known value, and current-vs-history ratios/differences for selected financial columns. During validation these references are fitted only on the pre-2022 training split, so the 2022 validation rows are not used to build their own history.
+
 It writes:
 
 ```text

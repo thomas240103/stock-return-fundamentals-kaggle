@@ -20,6 +20,22 @@ from stock_returns.validation import get_time_split, percent_improvement
 
 
 EXCLUDE_COLUMNS = {ID_COL, "ticker", TARGET_COL, "period_start", "period_end", "start_year", SECTOR_COL}
+AGGREGATE_COLUMNS = [
+    "market_cap",
+    "revenue_ttm",
+    "net_income_ttm",
+    "total_assets",
+    "stockholders_equity",
+    "pe_ttm",
+    "price_to_book",
+    "price_to_sales",
+    "roe",
+    "roa",
+    "net_margin",
+    "revenue_growth_yoy",
+    "current_ratio",
+    "debt_to_equity",
+]
 SUBMISSION_TRANSFORMS = [
     "raw",
     "shrink_0p8",
@@ -52,6 +68,11 @@ def parse_args() -> argparse.Namespace:
         "--use-year-offset",
         action="store_true",
         help="Add relative year features where the earliest available start_year is encoded as 0.",
+    )
+    parser.add_argument(
+        "--use-aggregate-features",
+        action="store_true",
+        help="Add train-fitted ticker-level aggregate features such as historical means, medians, stds, and last values.",
     )
     parser.add_argument("--make-submission", action="store_true", help="Refit on all train rows and write submission.csv.")
     parser.add_argument(
@@ -169,6 +190,76 @@ def add_sector_relative_features(df: pd.DataFrame, refs: dict[str, pd.DataFrame]
         out[f"{col}_vs_sec_train"] = safe_divide(out[col] - sec_median, sec_std + 1e-8)
         out[f"{col}_to_sec_median_train"] = safe_divide(out[col], sec_median)
     return out
+
+
+def _sort_for_history(df: pd.DataFrame) -> pd.DataFrame:
+    sort_cols = []
+    if "ticker" in df.columns:
+        sort_cols.append("ticker")
+    if "period_start" in df.columns:
+        out = df.copy()
+        out["_period_start_sort"] = pd.to_datetime(out["period_start"], errors="coerce")
+        sort_cols.append("_period_start_sort")
+        return out.sort_values(sort_cols).drop(columns=["_period_start_sort"])
+    if "start_year" in df.columns:
+        sort_cols.append("start_year")
+    return df.sort_values(sort_cols) if sort_cols else df
+
+
+def ticker_aggregate_reference(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Build ticker-level historical aggregate references from a training-only frame."""
+    if "ticker" not in df.columns:
+        return pd.DataFrame()
+
+    cols = [col for col in columns if col in df.columns]
+    if not cols:
+        return pd.DataFrame()
+
+    numeric = df[["ticker", *cols]].copy()
+    for col in cols:
+        numeric[col] = pd.to_numeric(numeric[col], errors="coerce")
+
+    grouped = numeric.groupby("ticker", dropna=False)
+    mean = grouped[cols].mean().add_prefix("ticker_mean_")
+    median = grouped[cols].median().add_prefix("ticker_median_")
+    std = grouped[cols].std().add_prefix("ticker_std_")
+    count = grouped.size().rename("ticker_history_count")
+
+    sorted_df = _sort_for_history(df[["ticker", *cols, *[c for c in ["period_start", "start_year"] if c in df.columns]]].copy())
+    last = sorted_df.groupby("ticker", dropna=False)[cols].last().add_prefix("ticker_last_")
+    refs = pd.concat([count, mean, median, std, last], axis=1)
+    return refs
+
+
+def add_ticker_aggregate_features(df: pd.DataFrame, refs: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Map ticker-level aggregate references to rows and add current-vs-history features."""
+    out = df.copy()
+    if refs.empty or "ticker" not in out.columns:
+        return out
+
+    mapped_refs = {ref_col: out["ticker"].map(refs[ref_col]) for ref_col in refs.columns}
+    out = pd.concat([out, pd.DataFrame(mapped_refs, index=out.index)], axis=1)
+
+    derived = {}
+    for col in [col for col in columns if col in out.columns]:
+        mean_col = f"ticker_mean_{col}"
+        median_col = f"ticker_median_{col}"
+        std_col = f"ticker_std_{col}"
+        last_col = f"ticker_last_{col}"
+        if mean_col in out.columns:
+            derived[f"{col}_to_ticker_mean"] = safe_divide(out[col], out[mean_col])
+        if median_col in out.columns:
+            derived[f"{col}_to_ticker_median"] = safe_divide(out[col], out[median_col])
+        if std_col in out.columns and mean_col in out.columns:
+            derived[f"{col}_vs_ticker_mean"] = safe_divide(out[col] - out[mean_col], out[std_col] + 1e-8)
+        if last_col in out.columns:
+            derived[f"{col}_to_ticker_last"] = safe_divide(out[col], out[last_col])
+            derived[f"{col}_minus_ticker_last"] = pd.to_numeric(out[col], errors="coerce") - pd.to_numeric(
+                out[last_col], errors="coerce"
+            )
+    if not derived:
+        return out
+    return pd.concat([out, pd.DataFrame(derived, index=out.index)], axis=1)
 
 
 def target_variant(y: np.ndarray, name: str) -> tuple[np.ndarray, dict[str, float | None]]:
@@ -291,6 +382,9 @@ def run_validation(train_df: pd.DataFrame, output_dir: Path, args: argparse.Name
     ]
     refs = sector_reference(base_train.loc[train_mask], ref_cols)
     engineered = add_sector_relative_features(base_train, refs)
+    if args.use_aggregate_features:
+        ticker_refs = ticker_aggregate_reference(base_train.loc[train_mask], AGGREGATE_COLUMNS)
+        engineered = add_ticker_aggregate_features(engineered, ticker_refs, AGGREGATE_COLUMNS)
     features = feature_columns(engineered)
 
     X_train_raw = engineered.loc[train_mask, features].astype("float32").to_numpy()
@@ -312,6 +406,7 @@ def run_validation(train_df: pd.DataFrame, output_dir: Path, args: argparse.Name
             "target_preprocessing": target_name,
             "n_features": len(features),
             "use_year_offset": args.use_year_offset,
+            "use_aggregate_features": args.use_aggregate_features,
             "year_zero": year_zero,
             "last_train_year": last_train_year,
             "target_lower": bounds["lower"],
@@ -354,6 +449,10 @@ def make_submission(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: P
     refs = sector_reference(train_features, ref_cols)
     train_features = add_sector_relative_features(train_features, refs)
     test_features = add_sector_relative_features(test_features, refs)
+    if args.use_aggregate_features:
+        ticker_refs = ticker_aggregate_reference(train_features, AGGREGATE_COLUMNS)
+        train_features = add_ticker_aggregate_features(train_features, ticker_refs, AGGREGATE_COLUMNS)
+        test_features = add_ticker_aggregate_features(test_features, ticker_refs, AGGREGATE_COLUMNS)
     features = feature_columns(train_features)
     for col in features:
         if col not in test_features.columns:
@@ -379,6 +478,7 @@ def make_submission(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: P
             "target_preprocessing": args.submission_target,
             "transform": args.submission_transform,
             "use_year_offset": args.use_year_offset,
+            "use_aggregate_features": args.use_aggregate_features,
             "year_zero": year_zero,
             "last_train_year": last_train_year,
             **summarize_prediction(pred),
@@ -400,6 +500,7 @@ def make_submission(train_df: pd.DataFrame, test_df: pd.DataFrame, output_dir: P
                     "target_preprocessing": args.submission_target,
                     "transform": transform,
                     "use_year_offset": args.use_year_offset,
+                    "use_aggregate_features": args.use_aggregate_features,
                     "year_zero": year_zero,
                     "last_train_year": last_train_year,
                     **summarize_prediction(variant_pred),
